@@ -1,0 +1,680 @@
+---
+title: "Final Projectplot"
+author: "Mohamed Tausif Siddiqui ,Zoel Quinonez,Neyousha Shahisavandi"
+date: "2020-10-24"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+The purpose of this code is to take both the wage and unemployment datasets from 
+the CA DPH and clean the data so that it can be used for analysis.  As part of 
+this, we eliminate columns unnecessary for analysis.  We also eliminate rows 
+where relevant wage, unemployment, race/ethnicity and region specific data is missing, as these will be the basis for the analysis.  We create at least two 
+new variables for each of the data sets.  We provide some descriptive statistics 
+and perform and initial examination of the means by plotting unemployment and 
+wage data by race/ethnicity and region.
+
+###  Loading Libraries and Data Files
+Data Source:https://data.chhs.ca.gov/dataset
+
+
+```{r,include=F,echo=F}
+
+library(tidyverse)
+library(readxl)
+library(stringr)
+library(plotly)
+library(kableExtra)
+library(ggplot2)
+library(gplots)
+library(formattable)
+library(DT)
+```
+
+## Importing and examining the data
+```{r,include=F,echo=F}
+# Downloading Data Files 
+
+url_wage <- "https://data.chhs.ca.gov/dataset/442e7cde-6230-405c-b8a8-b7ea5489de87/resource/f5a57e7a-e0fe-4d80-b0f6-92d66ecb907f/download/hci_living_wage_770_pl_co_re_ca_9-29-13-ada.xlsx"
+wage_file <- "hci_living_wage.xlsx"
+curl::curl_download(url_wage, wage_file)
+
+url_unemp <- "https://data.chhs.ca.gov/dataset/1be8df02-922b-4d34-9afc-c8b3c6f9be54/resource/2ecd7fda-2317-4fa1-8a6e-1834cfa39cc0/download/hci_unemployment_290_ca_re_co_cd_pl_ct-5-22-14-ada.xlsx"
+unemp_file <- "hci_unemployment.xlsx"
+curl::curl_download(url_unemp, unemp_file)
+
+
+
+# Downloading Data Dictionaries
+url_wagedd <- "https://data.chhs.ca.gov/dataset/442e7cde-6230-405c-b8a8-b7ea5489de87/resource/f6ae935b-d0ba-4be2-be35-717fe42ecc6c/download/livingwage-dd.xlsx"
+wage_dd_file <- "livingwage-dd.xlsx"
+curl::curl_download(url_wagedd, wage_dd_file)
+
+url_unempdd <- "https://data.chhs.ca.gov/dataset/1be8df02-922b-4d34-9afc-c8b3c6f9be54/resource/6c6311f0-827e-4b9e-836a-8e5cd33e2e40/download/unemploymentdd.xlsx"
+unemp_dd_file <- "unemploymentdd.xlsx"
+curl::curl_download(url_unempdd, unemp_dd_file)
+
+
+
+# Loading Data Files
+hci_unemployment_290 <- read_excel(unemp_file,n_max=106410)
+# last row 106411 is empty
+hci_living_wage <- read_excel(wage_file,n_max=15869)
+#last row 15870 is empty
+
+
+
+# Loading Data Dictionaries Files
+data_dictionary_hci_living_wage <- tibble(read_excel(wage_dd_file))
+hci_unemployment_dictiionary <- tibble(read_excel(unemp_dd_file))
+```
+```{r,echo=T}
+
+str(hci_living_wage)
+head(hci_living_wage, 100)
+
+# Ensuring that name data and code data have same number of categories
+unique(hci_living_wage$race_eth_name)
+unique(hci_living_wage$race_eth_code)
+unique(hci_living_wage$region_name)
+unique(hci_living_wage$region_code)
+
+# figuring out categories for family
+unique(hci_living_wage$family_type)
+
+# Ensuring that name data and code data have same number of categories
+unique(hci_unemployment_290$race_eth_name)
+unique(hci_unemployment_290$race_eth_code)
+unique(hci_unemployment_290$region_name)
+unique(hci_unemployment_290$region_code)
+
+# figuring out categories for family
+unique(hci_unemployment_290$family_type)
+
+# figuring out how many different year categories and how many rows for 2010
+unique(hci_unemployment_290$reportyear)
+
+
+```
+
+```{r,echo=F}
+
+
+hci_unemployment<-hci_unemployment_290[-c(106410),]
+
+```
+```{r,echo=F}
+
+
+
+hci_living_wage_h<-hci_living_wage[,-c(17:20)]
+hci_living_wage_h<-hci_living_wage_h[-c(15869),]
+```
+
+
+First we want to see which counties have a living wage of over $30.00 for the family groups. 
+
+```{r,echo=F}
+over_30dollars_living_wage<-ifelse(hci_living_wage_h$livingwage>30,"Yes","No")
+hci_living_wage_h<-cbind(hci_living_wage_h,over_30dollars_living_wage)
+```
+Next, we want to see if the data belongs to Native families who have children,so we create a new column.Since our data is not cleaned yet, we need to consider both "child" and "Child". 
+```{r,echo=F}
+
+Native_Family_with_minor<-tibble(if_else(str_detect(hci_living_wage_h$family_type,"hild")&(hci_living_wage_h$race_eth_name=="AIAN"),"Native with minor","No",missing=NULL))
+hci_living_wage_h<-add_column(hci_living_wage_h,Native_Family_with_minor,.after = 5)
+colnames(hci_living_wage_h)[6]<-"nativefam_with_minor"
+
+```
+Now, we move to the unemployment data. We want to create a column where it shows the difference of percentage of unemployment on each row versus the national unemployment average, which is 7.9%
+```{r,echo=F}
+
+Unemployed_rate_difference<-(hci_unemployment$Unemployment_rate-7.9)
+unemployment<-add_column(hci_unemployment,Unemployed_rate_difference,.after=15)
+colnames(unemployment)[16]<-"unemployment_VS_national"
+
+```
+\newpage 
+### Cleaning DATA and Recoding
+first , we drop columns with all NA values. There are four in the Unemployment table.There are columns with constant values, we drop those too.
+```{r, echo=F}
+
+unemployment<-select(unemployment,-c(ind_id,ind_definition,ll_95ci,ul_95ci,se,place_decile,rse,ind_id,ind_definition,version))
+unemployment<-as.data.frame(na.omit(unemployment))
+hci_living_wage_h<-select(hci_living_wage_h,-c(ind_definition,ind_id,reportyear,race_eth_code,geotypevalue,geotype,region_code,family_type_decile))
+
+#we drop the NA rows on the Living wage table too
+hci_living_wage_1<-na.omit(hci_living_wage_h)
+
+```
+##It is important to note lots of the variables are dropped, and the the total race is shown only. We could keep the previous data and work with hci_living_wage_h . Also, we change the region code in Unemployment data to numeric
+```{r, echo=F}
+
+unemployment$region_code<-as.numeric(unemployment$region_code)
+```
+
+\newpage
+
+###DATA DICTIONARY
+##Living Wage:
+```{r , echo=T}
+library(kableExtra)
+kable(data_dictionary_hci_living_wage)
+```
+\newpage
+###DATA DICTIONARY
+##Unemployment
+```{r, echo=T}
+
+kable(hci_unemployment_dictiionary)
+```
+\newpage
+###Descriptive Statistics for Living Wage Data
+```{r, echo=T}
+Living_wage_average<- c(summary(hci_living_wage_1$livingwage))
+Families_under_living_wage<-c(summary(hci_living_wage_1$fam_lt_lw))
+Families_percent_under_living_wage<-c(summary(hci_living_wage_1$pct_lt_lw))
+average_number_of_families<-c(summary(hci_living_wage_1$families))
+Descriptive<-tibble(Living_wage_average,Families_percent_under_living_wage,Families_under_living_wage,average_number_of_families)
+data_<-c("Min","1st Qu.","Median","Mean","3rd Qu.","Max." )
+Descriptive<-cbind(data_,Descriptive)
+print(Descriptive)
+```
+\newpage
+###Descriptive Statistics for Unemployment Data
+```{r, echo=T}
+Unemployment_count<-c(summary(unemployment$Unemployment))
+Labour_force_count<-c(summary(unemployment$Labor_force))
+Unemployment_percent_average<-c(summary(unemployment$Unemployment_rate))
+Unemployment_rate_difference_average<-c(summary(unemployment$unemployment_VS_national))
+Descriptive2<-tibble(Unemployment_count,Labour_force_count,Unemployment_percent_average,Unemployment_rate_difference_average)
+data_<-c("Min","1st Qu.","Median","Mean","3rd Qu.","Max." )
+Descriptive2<-cbind(data_,Descriptive2)
+print(Descriptive2)
+```
+\newpage
+### Bar Chart :Los Angeles Top 6 Regions With The Highest Unemployment Rates 2006-2010
+Interpretation:
+This is a bargraph showing the top 6 regions in Los Angeles with the highest rates of total unemployment. Desert View Highlands has the highest unemployment rate, 21.2%. Based on 2010 census, this area has about 2,360 population with about 50% whites and 50% Africans and Latinos. 
+
+```{r, results='hide'}
+unemployment_total<-filter(unemployment,race_eth_name=="Total",reportyear=="2006-2010",county_name=="Los Angeles",Unemployment_rate>14.99)
+ggplot(unemployment_total, aes(x = geoname, y = Unemployment_rate)) +
+  geom_col(fill =rainbow(n=length(unemployment_total$geoname)), color = "blue",width = 0.85,position = 'dodge') +
+  labs(x = "Regions",
+       y = "Unemplyment Rate (%)",
+       title = "Los Angeles Top 6 Regions With The Highest Unemployment Rates 2006-2010")+theme(axis.text.x = element_text(size = 7))+geom_text(aes(label=Unemployment_rate), position=position_dodge(width=0.9), vjust=-0.25)
+  theme_bw()
+
+
+```
+```{r,echo=F}
+#Freeing memory by deleting large intermediate objects
+rm(hci_living_wage_h)
+rm(hci_living_wage_1)
+rm(hci_unemployment)
+rm(data_dictionary_hci_living_wage)
+rm(hci_unemployment_dictiionary)
+rm(unemployment)
+rm(Native_Family_with_minor)
+rm(unemployment_total)
+```
+
+\newpage
+### Cleaning Data  to compare Unemployment Rate verses Time for different 
+### Regions of California
+##  Generate Table to show UnEmployment Rates Across various MPO based 
+##  California Regions from 2004-2013
+```{r,echo=F}
+
+ds<-hci_unemployment_290 %>%
+#select only specific colums 
+  select(c(reportyear,race_eth_name,region_name,Unemployment_rate))%>%
+  
+  #remove rows with  which are na 
+  #beacause the race is specific for adding California regions
+  drop_na(region_name)%>%  
+  
+  #remove rows with race specific distiction and keep only total
+  filter(race_eth_name=="Total")%>%
+  
+  #remove rows with period interval instead of specific year
+  filter(!grepl("-",reportyear ))%>%
+  
+  #remove rows with missing values of unemployment data 
+  drop_na(Unemployment_rate)%>%
+  
+  # removes columns that were kept for cleaning purposes
+  select(reportyear,region_name,Unemployment_rate)%>%
+  
+  #group data based on year and region
+  group_by(reportyear,region_name)%>%
+  summarize(Rate=mean(Unemployment_rate))
+
+ 
+```
+```{r, echo=T}
+kable(ds,booktabs=T,align='lcr',
+      digits=c(0,0,1),
+      caption="UnEmployment Rates Across various MPO Based CA Regions from 2004-2013",
+      col.names=c("Year","MPO CA Region","UnEmployment Rate"))    %>%
+     kable_styling(full_width=T) %>%
+ footnote(
+    general="Case data is from the CDPH accessed via the CHHS Open Data portal.. ",
+    general_title="Data Sources",
+    title_format=c("italic"),
+    threeparttable=T
+  )
+```
+
+\newpage
+### Scatter line plot for Time based 
+### Unemployment Rates across all MPO based CA  Regions.
+   
+
+###Interpretation: 
+##A general trend is observed as there is a rise in unemployment rate from to 
+##2006 to 2010 and with the peak in 2010 for all regions and 
+##then again the unemployment rate started declining from 2010 to 2013
+  
+
+```{r warning=FALSE, echo=T}
+
+unemployment_vs_time_plot<-ds%>%ungroup()%>%plot_ly(
+  x=~reportyear,
+  y=~Rate,
+  color=~region_name,
+  type="scatter",
+  mode="lines",
+  colors = c("pink","green","red","orange","blue", "skyblue","darkgreen", "darkorange","darkred","purple","skyblue","magenta","beige","maroon"),
+  text = ~paste('Year: ',reportyear,'<br>Region: ',region_name,'<br>Rate: ',Rate)
+) %>%
+  layout(
+    title="UnEmployment Rates across Various California MPO regions, 2004-2013",
+    yaxis=list(title="Unemploment Rate "),
+    xaxis=list(title="Year")
+    
+  )
+unemployment_vs_time_plot
+```
+
+```{r,echo=F}
+#Freeing memory by deleting large intermediate objects
+rm(ds)
+rm(unemployment_vs_time_plot)
+
+```
+
+\newpage
+
+## Wage data manipulation
+```{r wage-data-prep,echo=F}
+
+# ***STRATEGY FOR DATA PREPARATION -- WAGE DATA***
+
+# will assess region as confounder for race/ethnicity so 
+# will eliminate county_name, county_fips given overlapping data with region
+# will eliminate geotype and geotypevalue columns
+# will eliminated 95CI categories, SE and RSE given that they are missing and not
+# needed for analysis
+
+# will eliminate version column
+# will eliminate ind_id and ind_definition columns, as they are all the same
+
+wage_data_2 <- select(hci_living_wage, -c("county_name","county_fips","geotype","geoname",
+                                  "geotypevalue", "LL_95CI", "UL_95CI", "se", 
+                                  "rse", "version", "ind_id", "ind_definition",
+                                  "family_type_decile"))
+
+view(wage_data_2)
+
+# will eliminate all rows for which there is race/ethnicity or region missing
+# will eliminate rows for which % below living wage data is missing
+# will eliminate any rows with family data is missing
+# will eliminate "Adult1_children" or "Adult2_children" even though
+# this may be biased by region of ethnicity/race
+
+wage_data_fix <- wage_data_2 %>%
+  drop_na(race_eth_code) %>%
+  drop_na(race_eth_name) %>%
+  drop_na(region_code) %>%
+  drop_na(pct_lt_lw) %>%
+  drop_na(region_name) %>%
+  mutate(num_fam = case_when(family_type == "Adult1" ~ as.character(1), 
+                             family_type %in% c("Adult1_Child1", "Adults2") ~ as.character(2),
+                             family_type %in% c("SingleMother2Children", "Adult2_Child1", "Adult1_Children2") ~ as.character(3), 
+                             family_type %in% c("MarriedCouple2Children","Adult1_Children3", "Adults2_Children2") ~ as.character(4),
+                             family_type == 
+                               "Adult2_Children3" ~ as.character(5),
+                             TRUE ~ NA_character_)
+         )
+
+# change all column names to lower case
+wage_data_fix <- set_names(wage_data_fix, tolower(names(wage_data_fix[1:12])))
+view(wage_data_fix)
+
+# New variables left to create:
+#   how many people in the household
+#   categories for % below living wage based on highest and lowest % in data set
+#   transform pct_lt_lw given that zeros make it difficult to calculate a RR
+
+```
+
+\newpage
+
+## Unemployment data manipulation
+```{r unemp-data-prep,echo=F}
+
+# ***STRATEGY FOR DATA PREPARATION -- UNEMPLOYMENT DATA***
+
+# will assess region as confounder for race/ethnicity so will 
+# eliminate geotype categories
+# eliminate county_name, county_fips given overlapping data with region
+# will eliminated 95CI categories, SE and RSE as they are not needed for analysis
+# will eliminate version category
+
+unemp_data_2 <- select(hci_unemployment_290, -c("county_name","county_fips","geotype","geoname",
+                                  "geotypevalue", "ll_95ci", "ul_95ci", "se", 
+                                  "rse", "version", "ind_id", 
+                                  "ind_definition"))
+
+# will eliminate all rows for which there is race/ethnicity or region missing
+# will eliminate any rows with missing values for Unemploymeny_rate, or where it cannot be
+# calculated from Unemployment and Labor_force
+
+unemp_data_fix <- unemp_data_2 %>%
+  drop_na(race_eth_code) %>%
+  drop_na(race_eth_name) %>%
+  drop_na(region_code) %>%
+  drop_na(region_name) %>%
+  drop_na(Unemployment_rate)
+
+# will eliminate any rows with missing values for Unemploymeny_rate, or where
+# it cannot be calculated from Unemployment and Labor_force# subsetting to years 
+# 2006-2010 and 2010 only "total" available for race_eth_name for year 2010 
+# so elected to include 2006-2010
+
+unemp_data_fix <- subset(unemp_data_fix, reportyear %in% c("2010", "2006-2010"))
+
+# change all column names to lower case
+unemp_data_fix <- set_names(unemp_data_fix, 
+                            tolower(names(unemp_data_fix[1:10])))
+view(unemp_data_fix)
+
+```
+
+\newpage
+
+## Creating new variables for both the living wage and unemployment data
+```{r var-create,echo=F}
+
+# ***VARIABLES FOR WAGE DATA***
+
+# identifying min and max for perentage of families below a living wage
+max(wage_data_fix$pct_lt_lw)
+min(wage_data_fix$pct_lt_lw)
+
+# given values of zero, will log transform all the data after adding 
+# a constant (2)
+log_pct <- c(log10(wage_data_fix$pct_lt_lw + 2))
+wage_data_trans <- cbind(wage_data_fix, log_pct)
+
+# creating 4 categories for percentage of families below a living wage
+wage_data_trans <- wage_data_trans %>%
+  mutate(quart_lvg_wage = 
+           case_when(pct_lt_lw < 25 ~ as.character(1),
+                     pct_lt_lw >= 25 & pct_lt_lw < 50 ~ as.character(2),
+                     pct_lt_lw >= 50 & pct_lt_lw < 75 ~ as.character(3),
+                     pct_lt_lw >= 75 ~ as.character(4),
+                     TRUE ~ NA_character_)
+  )
+
+# summarizing data to percentage of families 
+# below living wage by race and region
+wage_data_final <- wage_data_trans %>%
+  group_by(region_name, race_eth_name) %>%
+  summarise(mean_below_wg = mean(pct_lt_lw)) %>%
+  pivot_wider(names_from = region_name,
+              values_from = mean_below_wg)
+
+# ***VARIABLES FOR UNEMPLOYMENT DATA***
+
+# variables for min and max unemployment rate and one-fourth the difference
+(maxR <- max(unemp_data_fix$unemployment_rate))
+(minR <- min(unemp_data_fix$unemployment_rate))
+(fourth_diff <- (maxR - minR)/4)
+
+# creating three cut-offs for unemployment rate
+(a <- minR + fourth_diff)
+(b <- minR + 2*fourth_diff)
+(c <- maxR - fourth_diff)
+
+# quartiles for unemployment rate based on highest and lowest rate in data set
+unemp_data_fix <- unemp_data_fix %>%
+  mutate(quart_unemp = 
+           case_when(unemployment_rate < a ~ as.character(1),
+                     unemployment_rate >= a & unemployment_rate < b ~ as.character(2),
+                     unemployment_rate >= b & unemployment_rate < c ~ as.character(3),
+                     unemployment_rate >= c ~ as.character(4),
+                     TRUE ~ NA_character_)
+         )
+
+# summarizing data to percentage of families 
+# below living wage by race and region
+unemp_data_final <- unemp_data_fix %>%
+  group_by(region_name, race_eth_name) %>%
+  summarise(mean_unemp = mean(unemployment_rate)) %>%
+  pivot_wider(names_from = region_name,
+              values_from = mean_unemp)
+
+# # joining unemployment and wage data by region and race
+# final_unemp_wge <- 
+#   inner_join(wage_data_final, unemp_data_final, 
+#              by = c("region_name", "race_eth_name")) 
+
+```
+
+\newpage
+
+## Descriptive statistics and plots for both datasets
+# Table for wage data
+```{r table-plots,echo=T}
+formattable(
+wage_data_final,
+digits = 2,
+row.names = FALSE,
+col.names = c("Race/Ethnicity", names(wage_data_final)[-1]),
+caption = "Percent Below Living Wage by Race and Region"
+)
+```
+\newpage
+# Table for unemployment data
+```{r table,echo=T}
+
+formattable(
+unemp_data_final,
+digits = 2,
+row.names = FALSE,
+col.names = c("Race/Ethnicity", names(unemp_data_final)[-1]),
+caption = "Unemployment Rate by Race and Region"
+)
+```
+# subsetting data for wage and unemployment
+```{r, echo=F}
+wage_plot_data <- wage_data_fix %>%
+  group_by(race_eth_name, region_name) %>%
+  summarise(mean_below_wg = mean(pct_lt_lw)) %>%
+  select(race_eth_name, region_name, mean_below_wg)
+
+unemp_plot_data <- unemp_data_fix %>%
+  group_by(race_eth_name, region_name) %>%
+  summarise(mean_unemp = mean(unemployment_rate)) %>%
+  select(race_eth_name, region_name, mean_unemp)
+```
+\newpage
+## bar graphs for wage per race data by region
+## Interpretation: 
+## The percentage of household for different racial/ethnic groups 
+## living below a living wage varies across regions.  The overall trend 
+## demonstrates that across regions, Latino, African American and American 
+## Indian / Alaska Native populations have a larger proportions of their 
+## families living below a living wage.
+
+```{r, echo=T}
+
+ggplot(data = wage_plot_data, aes(x = race_eth_name, y = mean_below_wg)) +
+  geom_bar(stat = "identity", aes(fill = race_eth_name),
+            show.legend = TRUE) +
+  scale_fill_discrete(name = "Race/Ethnicity") +
+  labs(title = "Household Income Below Living Wage by Race and Across Regions",
+       subtitle = "For 2010", y = "Percent Below Living Wage", x = "") +
+  facet_grid(rows = vars(race_eth_name)) +
+  facet_wrap(~ region_name, ncol = 4) +
+  theme_minimal() +
+  theme(strip.text.y = element_blank(), axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_y_continuous(limits = c(0,100))
+```
+\newpage
+## bar graphs for Unemployment rate per race data by region
+
+## Interpretation: 
+## The unemployment rate for different racial/ethnic groups varies 
+## across regions.  The overall trend demonstrates that across regions, 
+## African American and American Indian / Alaska Native populations tend to
+## have a higher unemployment rate, while White and Asian populations tend to
+## have a lower unemployment rate.
+
+```{r, echo=T}
+ggplot(data = unemp_plot_data, aes(x = race_eth_name, y = mean_unemp)) +
+  geom_bar(stat = "identity", aes(fill = race_eth_name),
+            show.legend = TRUE) +
+  scale_fill_discrete(name = "Race/Ethnicity") +
+  labs(title = "Unemployment Rate by Race and Across Regions",
+       subtitle = "For 2010", y = "Percent Unemployment", x = "") +
+  facet_grid(rows = vars(race_eth_name)) +
+  facet_wrap(~ region_name, ncol = 4) +
+  theme_minimal() +
+  theme(strip.text.y = element_blank(), axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_y_continuous(limits = c(0,75))
+```
+\newpage
+## plotting overall CA percentage of those below a living wage by ethnicity/race
+## Interpretation:
+## When looking at the entirety of California, Latinos have a higher proportion
+## of households living below a living wage when compared to the total
+## population as well as when compared to Whites.  This is statistically
+## significant.
+
+```{r, echo=T,warning=F}
+
+plotmeans(pct_lt_lw ~ race_eth_name, data = wage_data_trans, ci.label = TRUE,
+          mean.label = FALSE, digits = 1, ylim = c(30, 70),
+          cex.main = 1, cex.axis = 0.6, n.label = FALSE,
+          barcol = "blue", col = "black",
+          connect = FALSE,
+          ylab = "Percent below living wage (mean +/- CI)",
+          xlab = "Race / Ethnicity",
+          main = "Percentage of those living below a living wage by race
+          / ethnicity in CA")
+
+```
+\newpage
+
+# plotting overall CA unemployment rate by ethnicity / race
+## Interpretation:
+## When looking at the entirety of California, American Indian / Alaska Natives
+## have a higher proportion of unemployed when compared to all except African
+## Americans.  African Americans have a higher proportion of unemployed than
+## all but American Indian / Alaska Natives, as well as Hawaiian / Pacific
+## Islander.  Asians have a higher proportion of employed when compared to all
+## other race / ethnic groups.  Whites have a higher proportion of employed when
+## compared to all groups other than Asians. This is statistically significant.
+
+```{r, echo=T,,warning=F}
+
+plotmeans(unemployment_rate ~ race_eth_name, data = 
+            unemp_data_fix, ci.label = TRUE, 
+          mean.label = FALSE, digits = 1, ylim = c(5, 18),
+          cex.main = 1, cex.axis = 0.6, n.label = FALSE,
+          barcol = "blue", col = "black",
+          connect = FALSE,
+          ylab = "Unemployment Rate (mean +/- CI)",
+          xlab = "Race / Ethnicity",
+          main = "Total CA unemployment rate by race / ethnicity")
+
+```
+\newpage
+
+## Creating the data dictionary
+
+```{r data_library, echo=F}
+
+data_dict <- tibble(
+    'Variable Name' = c("reportyear", "family_type", "race_eth_code",
+                        "race_eth_name", "region_name", "region_code",
+                        "fam_lt_lw", "families",
+                        "pct_lt_lw", "ca_rr", "livingwage", "num_fam",
+                        "log_pct", "quart_lvg_wage", "unemployment",
+                        "labor_force", "unemployment_rate", "place_decile", 
+                        "mean_below_wg", "mean_unemp"),
+    'Description' = c("year for which the data is aggregated", 
+                      "member makeup of family", 
+                      "code assigned to race/ethnicity designation", 
+                      "race/ethnicity designation", 
+                      "MPO specific region",
+                      "MPO-based region code", 
+                      "number of families below a living wage", 
+                      "total number of families", 
+                      "percentage of size-specific families making below
+                      a living wage", 
+                      "rate ratio to CA rate",
+                      "living wage rate for region", 
+                      "total persons per family", 
+                      "log transformation of pct_lt_lw plus two", 
+                      "categories of percent people living below living wage",
+                      "unemployed population", 
+                      "population in the labor force",
+                      "(unemployment/labor_force)*100", 
+                      "CA deciles for unemployment", 
+                      "percent of all families making below a living 
+                      wage throughout the region", 
+                      "percent unemployment in this region"),
+    'Type' = c(typeof(wage_data_trans$reportyear),
+               typeof(wage_data_trans$family_type), 
+               typeof(wage_data_trans$race_eth_code), 
+               typeof(wage_data_trans$race_eth_name), 
+               typeof(wage_data_trans$region_name), 
+               typeof(wage_data_trans$region_code), 
+               typeof(wage_data_trans$fam_lt_lw), 
+               typeof(wage_data_trans$families), 
+               typeof(wage_data_trans$pct_lt_lw), 
+               typeof(wage_data_trans$ca_rr), 
+               typeof(wage_data_trans$livingwage), 
+               typeof(wage_data_trans$num_fam), 
+               typeof(wage_data_trans$log_pct), 
+               typeof(wage_data_trans$quart_lvg_wage), 
+               typeof(unemp_data_fix$unemployment), 
+               typeof(unemp_data_fix$labor_force), 
+               typeof(unemp_data_fix$unemployment_rate), 
+               typeof(unemp_data_fix$place_decile), 
+               typeof(wage_plot_data$mean_below_wg), 
+               typeof(unemp_plot_data$mean_unemp))
+    
+)
+```
+```{r , echo=T}
+kable(data_dict,booktabs=T,align='lcr')    %>%
+     kable_styling(full_width=T)
+```
+```{r , echo=F}
+rm(unemp_data_2)
+rm(unemp_data_fix)
+rm(wage_data_2)
+rm(wage_data_fix)
+rm(wage_data_trans)
+
+```
